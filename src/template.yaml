@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-tracing-demo
+
+Globals:
+  Function:
+    Timeout: 10
+    Tracing: Active
+  Api:
+    TracingEnabled: True
+
+Resources:
+# Lambda related resources
+  PeriodicStatusFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: periodic_status/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName:
+              !GetAtt StatusTopic.TopicName
+      Layers:
+        - !Ref SharedLibsLayer
+      Environment:
+        Variables:
+          SNS_QUEUE_ARN: !Ref StatusTopic
+      Architectures:
+        - x86_64
+      Events:
+        StatusSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: 'rate(1 hour)'
+            Name: StatusScheduler
+            Description: Send status updates to various receivers. 
+            Enabled: true
+  
+  CwGateFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Policies:
+        - SQSPollerPolicy:
+            QueueName:
+              !GetAtt CWMSenderSQS.QueueName
+        - DynamoDBWritePolicy:
+            TableName: !Ref PingStatusTable
+      Layers:
+        - !Ref SharedLibsLayer
+      Environment:
+        Variables:
+          CWM_KILL_SWITCH: "false"
+          DDB_NAME: !Ref PingStatusTable
+
+      CodeUri: cwm_handler/
+      Handler: cwm_gate.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CWMSenderSQS.Arn
+            BatchSize: 10
+  
+  CwSenderFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Layers:
+        - !Ref SharedLibsLayer
+      CodeUri: cwm_handler/
+      Handler: cwm_sender.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt PingStatusTable.StreamArn
+            BatchSize: 100
+            StartingPosition: TRIM_HORIZON
+
+  TwillioGateFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Policies:
+        - SQSPollerPolicy:
+            QueueName:
+              !GetAtt TwillioSenderSQS.QueueName
+        - KinesisCrudPolicy:
+            StreamName:
+              !Ref TwillioStream
+      Layers:
+        - !Ref SharedLibsLayer
+      Environment:
+        Variables:
+          TWILLIO_KILL_SWITCH: "false"
+          KINESIS_NAME: !Ref TwillioStream
+
+      CodeUri: twillio_handler/
+      Handler: twillio_gate.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TwillioSenderSQS.Arn
+            BatchSize: 10
+  
+  TwillioSenderFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref TwillioSecret
+      Layers:
+        - !Ref SharedLibsLayer
+      Environment:
+        Variables:
+          TWILLIO_SECRET_MANAGER_KEY: !Ref TwillioSecret
+
+      CodeUri: twillio_handler/
+      Handler: twillio_sender.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Events:
+        Stream:
+          Type: Kinesis
+          Properties:
+            Stream: !GetAtt TwillioStream.Arn
+            BatchSize: 100
+            StartingPosition: LATEST
+
+  SharedLibsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: boto3_layer
+      CompatibleRuntimes:
+        - python3.9
+    Metadata:
+      BuildMethod: python3.9
+
+# Queues
+  TwillioSenderSQS:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Sub "${AWS::StackName}-TwillioSenderSQS"
+  
+  CWMSenderSQS:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Sub "${AWS::StackName}-CWMSenderSQS"
+  
+  StatusTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint:
+            Fn::GetAtt:
+              - "TwillioSenderSQS"
+              - "Arn"
+          Protocol: "sqs"
+        - Endpoint:
+            Fn::GetAtt:
+              - "CWMSenderSQS"
+              - "Arn"
+          Protocol: "sqs"
+      TopicName: !Sub "${AWS::StackName}-StatusTopic"
+
+  SampleSQSPolicy: 
+    Type: AWS::SQS::QueuePolicy
+    Properties: 
+      Queues: [!Ref TwillioSenderSQS,!Ref CWMSenderSQS]
+      PolicyDocument: 
+        Statement: 
+          - 
+            Action: ['sqs:SendMessage']
+            Effect: "Allow"
+            Resource: "*"
+            Principal:
+              AWS: '*'
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref "StatusTopic"
+
+  TwillioStream: 
+      Type: AWS::Kinesis::Stream 
+      Properties: 
+          Name: !Sub "${AWS::StackName}-TwillioStream" 
+          RetentionPeriodHours: 168 
+          ShardCount: 1 
+# DDB
+  PingStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: time
+          AttributeType: N
+      KeySchema: 
+        - AttributeName: id
+          KeyType: HASH 
+        - AttributeName: time
+          KeyType: RANGE 
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+
+# Misc
+  TwillioSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: twillio-auth-details
+      SecretString: '{"twillio_account_sid":"NA", "twillio_auth_token": "NA"}'
+# Outputs:
+#   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+#   # Find out more about other implicit resources you can reference within SAM
+#   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+#   HelloWorldApi:
+#     Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+#     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+#   HelloWorldFunction:
+#     Description: "Hello World Lambda Function ARN"
+#     Value: !GetAtt HelloWorldFunction.Arn
+#   HelloWorldFunctionIamRole:
+#     Description: "Implicit IAM Role created for Hello World function"
+#     Value: !GetAtt HelloWorldFunctionRole.Arn

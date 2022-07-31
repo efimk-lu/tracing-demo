@@ -1,0 +1,2 @@
+boto3==1.24.36
+dataclasses-json==0.5.7
