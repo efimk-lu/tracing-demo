@@ -3,6 +3,10 @@ import json
 import os
 from utils.models import PingData
 from utils.consts import TWILLIO_KILL_SWITCH_ENV, KINESIS_NAME_ENV
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
+
+patch_all()
 
 kinesis = boto3.client("kinesis")
 

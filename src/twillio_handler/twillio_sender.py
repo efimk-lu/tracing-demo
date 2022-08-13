@@ -6,6 +6,10 @@ from utils.consts import TWILLIO_SECRET_MANAGER_KEY_ENV
 from functools import cache
 import boto3
 import json
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
+
+patch_all()
 
 def lambda_handler(event, context):
     ping = base64.b64decode(event["Records"][0]["kinesis"]["data"])

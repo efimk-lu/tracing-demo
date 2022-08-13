@@ -1,12 +1,22 @@
-from aws_embedded_metrics import metric_scope
+import boto3
+import datetime
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
 
-@metric_scope
-def lambda_handler(event, context, metrics):
-    metrics.set_namespace("PingStatus")
-    metrics.put_metric("Ping", 1, "Count")
-    print("Writing metric as EMF")
+patch_all()
+
+cloudwatch = boto3.resource("cloudwatch")
+metric = cloudwatch.Metric("PingStatus", "Ping")
 
 
-    
-
-
+def lambda_handler(event, context):
+    metric.put_data(
+        MetricData=[
+            {
+                "MetricName": metric.name,
+                "Timestamp": datetime.datetime.utcnow(),
+                "Value": 1,
+                "Unit": "Count",
+            }
+        ]
+    )

@@ -27,6 +27,7 @@ Resources:
       Environment:
         Variables:
           SNS_QUEUE_ARN: !Ref StatusTopic
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /opt/collector.yaml
       Architectures:
         - x86_64
       Events:
@@ -53,6 +54,7 @@ Resources:
         Variables:
           CWM_KILL_SWITCH: "false"
           DDB_NAME: !Ref PingStatusTable
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /opt/collector.yaml
 
       CodeUri: cwm_handler/
       Handler: cwm_gate.lambda_handler
@@ -74,6 +76,11 @@ Resources:
       CodeUri: cwm_handler/
       Handler: cwm_sender.lambda_handler
       Runtime: python3.9
+      Environment:
+        Variables:
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /opt/collector.yaml
+      Policies:
+        - CloudWatchPutMetricPolicy : {}
       Architectures:
         - x86_64
       Events:
@@ -81,7 +88,7 @@ Resources:
           Type: DynamoDB
           Properties:
             Stream: !GetAtt PingStatusTable.StreamArn
-            BatchSize: 100
+            BatchSize: 1
             StartingPosition: TRIM_HORIZON
 
   TwillioGateFunction:
@@ -100,6 +107,7 @@ Resources:
         Variables:
           TWILLIO_KILL_SWITCH: "false"
           KINESIS_NAME: !Ref TwillioStream
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /opt/collector.yaml
 
       CodeUri: twillio_handler/
       Handler: twillio_gate.lambda_handler
@@ -124,6 +132,7 @@ Resources:
       Environment:
         Variables:
           TWILLIO_SECRET_MANAGER_KEY: !Ref TwillioSecret
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /opt/collector.yaml
 
       CodeUri: twillio_handler/
       Handler: twillio_sender.lambda_handler
@@ -137,6 +146,8 @@ Resources:
             Stream: !GetAtt TwillioStream.Arn
             BatchSize: 100
             StartingPosition: LATEST
+            MaximumRetryAttempts: 1
+
 
   SharedLibsLayer:
     Type: AWS::Serverless::LayerVersion
@@ -157,6 +168,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties: 
       QueueName: !Sub "${AWS::StackName}-CWMSenderSQS"
+      MessageRetentionPeriod: 60
   
   StatusTopic:
     Type: AWS::SNS::Topic
@@ -221,16 +233,3 @@ Resources:
     Properties:
       Name: twillio-auth-details
       SecretString: '{"twillio_account_sid":"NA", "twillio_auth_token": "NA"}'
-# Outputs:
-#   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-#   # Find out more about other implicit resources you can reference within SAM
-#   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-#   HelloWorldApi:
-#     Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-#     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-#   HelloWorldFunction:
-#     Description: "Hello World Lambda Function ARN"
-#     Value: !GetAtt HelloWorldFunction.Arn
-#   HelloWorldFunctionIamRole:
-#     Description: "Implicit IAM Role created for Hello World function"
-#     Value: !GetAtt HelloWorldFunctionRole.Arn

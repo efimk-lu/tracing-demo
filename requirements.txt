@@ -7,3 +7,4 @@ tomli==2.0.1
 typing_extensions==4.3.0
 boto3==1.24.36
 dataclasses-json==0.5.7
+aws-xray-sdk==2.4.3
