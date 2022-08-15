@@ -20,4 +20,6 @@ def lambda_handler(event, context):
         topic.publish(Message=json.dumps({"exact_time": str(datetime.now().timestamp())}))
     else:
         topic.publish(Message=PingData().to_json())
+        topic.publish(Message=PingData().to_json())
+        topic.publish(Message=PingData().to_json())
     print(f"Message sent successfully to '{topic.arn}'")

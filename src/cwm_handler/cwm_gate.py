@@ -22,9 +22,7 @@ def lambda_handler(event, context):
     else:
         print("Sending to DDB")
         body = json.loads(event["Records"][0]["body"])
-        with table.batch_writer() as batch:
-            for _ in range(3):
-                table.put_item(Item={"id": get_random_id(), "time":Decimal(PingData.from_json(body["Message"]).exact_time.timestamp())})
+        table.put_item(Item={"id": get_random_id(), "time":Decimal(PingData.from_json(body["Message"]).exact_time.timestamp())})
 
 
 def get_random_id() -> str:

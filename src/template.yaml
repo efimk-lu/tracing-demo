@@ -119,7 +119,7 @@ Resources:
           Type: SQS
           Properties:
             Queue: !GetAtt TwillioSenderSQS.Arn
-            BatchSize: 10
+            BatchSize: 1
   
   TwillioSenderFunction:
     Type: AWS::Serverless::Function 
