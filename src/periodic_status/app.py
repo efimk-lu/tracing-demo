@@ -21,5 +21,4 @@ def lambda_handler(event, context):
     else:
         topic.publish(Message=PingData().to_json())
         topic.publish(Message=PingData().to_json())
-        topic.publish(Message=PingData().to_json())
     print(f"Message sent successfully to '{topic.arn}'")
