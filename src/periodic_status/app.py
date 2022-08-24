@@ -16,9 +16,12 @@ topic = sns.Topic(os.environ.get(SNS_QUEUE_ARN_ENV))
 
 def lambda_handler(event, context):
     print("About to send status update message")
+    message = PingData().to_json()
     if random.randint(1,10) == 10:
-        topic.publish(Message=json.dumps({"exact_time": str(datetime.now().timestamp())}))
+        message = {"exact_time": str(datetime.now().timestamp())}
+        topic.publish(Message=json.dumps(message))
     else:
-        topic.publish(Message=PingData().to_json())
-        topic.publish(Message=PingData().to_json())
+        topic.publish(Message=message)
+        topic.publish(Message=message)
     print(f"Message sent successfully to '{topic.arn}'")
+    print(json.dumps(message, indent=2))
